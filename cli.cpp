@@ -12,6 +12,7 @@
 
 #include <openssl/md5.h>
 
+#define CZSFP_IMPLEMENTATION
 #include "filepack.hpp"
 
 using namespace czsfp;
