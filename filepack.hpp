@@ -31,8 +31,8 @@ private:
 	std::unordered_map<std::string, FileQuery> locations;
 };
 
-}
-#endif
+} // namespace czsfp
+#endif // CZSFP_HEADERS_H
 
 #ifdef CZSFP_IMPLEMENTATION
 #ifndef CZSFP_IMPLEMENTATION_GUARD_
@@ -87,6 +87,6 @@ FilePack::FilePack(const char* path)
 	free(file_infos);
 }
 
-}
-#endif
-#endif
+} //namespace czsfp
+#endif // CZSFP_IMPLEMENTATION_GUARD_
+#endif // CZSFP_IMPLEMENTATION
