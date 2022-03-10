@@ -298,9 +298,7 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 		handles[i] = std::thread(copy_thread, &builder, &index, buffer + (i * buffer_block_size), buffer_block_size);
 
 	// Write EoF data
-	FileManifest last_file = builder.manifests[file_count - 1];
-
-	uint64_t eof_block_size = total_size - last_file.size - last_file.offset;
+	uint64_t eof_block_size = total_size - offset;
 	char* data = reinterpret_cast<char*>(malloc(eof_block_size));
 	char* ptr = data;
 
@@ -318,8 +316,8 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 
 	// File Pack manifest
 	PackManifest manifest;
-	manifest.name_offset = last_file.size + last_file.offset;
-	manifest.info_offset = manifest.name_offset + last_file.name_length + last_file.name_offset;
+	manifest.name_offset = offset;
+	manifest.info_offset = manifest.name_offset + name_offset;
 	manifest.file_count = file_count;
 	manifest.version = CZSFP_VERSION;
 	memcpy(ptr, &manifest, sizeof manifest);
@@ -327,7 +325,7 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 
 	// Write to file
 	output = fopen(pack_path, "r+b");
-	fseek(output, last_file.size + last_file.offset, SEEK_SET);
+	fseek(output, offset, SEEK_SET);
 	fwrite(data, sizeof(char), eof_block_size, output);
 	fclose(output);
 	free(data);
