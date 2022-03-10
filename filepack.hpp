@@ -5,8 +5,6 @@
 #include <unordered_map>
 #include <string>
 
-#include <openssl/md5.h>
-
 namespace czsfp
 {
 
@@ -59,6 +57,8 @@ private:
 	#include <unistd.h>
 	#include <sys/types.h>
 #endif
+
+#include <openssl/md5.h>
 
 namespace czsfp
 {
