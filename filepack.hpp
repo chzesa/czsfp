@@ -113,6 +113,10 @@ FilePack::FilePack(const char* path)
 	for (int i = 0; i < manifest.file_count; i++)
 	{
 		FileManifest info = file_infos[i];
+
+		if (info.name_offset, info.name_length >= manifest.names_size())
+			continue;
+
 		std::string file_name(file_names + info.name_offset, info.name_length);
 		this->locations.insert({
 			file_name,
