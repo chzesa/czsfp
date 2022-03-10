@@ -48,15 +48,6 @@ private:
 #include <thread>
 #include <vector>
 
-#ifdef _WIN32
-	
-#endif
-
-#ifdef __unix__
-	#include <unistd.h>
-	#include <sys/types.h>
-#endif
-
 #include <openssl/md5.h>
 
 namespace czsfp
@@ -286,17 +277,6 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 
 	// Create file and set size
 	auto output = fopen(pack_path, "w");
-
-	#ifdef _WIN32
-	#endif
-	#ifdef __unix__
-	if (truncate(pack_path, total_size))
-	{
-		std::cout << "Failed to create asset file." << std::endl;
-		return;
-	}
-	#endif
-
 	fclose(output);
 
 	// Spawn threads for copying file contents
