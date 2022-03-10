@@ -59,7 +59,7 @@ struct FileManifest
 	uint64_t name_length;
 	uint64_t offset;
 	uint64_t size;
-	char md5[MD5_DIGEST_LENGTH];
+	unsigned char md5[MD5_DIGEST_LENGTH];
 };
 
 struct PackManifest
@@ -128,7 +128,7 @@ FilePack::FilePack(const char* path)
 	free(file_infos);
 }
 
-void copy_file(FILE* output, const FileManifest& info, const char* path, char* buffer, uint64_t buffer_size)
+void copy_file(FILE* output, FileManifest& info, const char* path, char* buffer, uint64_t buffer_size)
 {
 	FILE* input = fopen(path, "r");
 
@@ -140,13 +140,18 @@ void copy_file(FILE* output, const FileManifest& info, const char* path, char* b
 
 	fseek(output, info.offset, SEEK_SET);
 
+	struct MD5state_st md5;
+	MD5_Init(&md5);
+
 	for (uint64_t block = 0; block < info.size; block += buffer_size)
 	{
 		uint64_t block_size = std::min(info.size - block, buffer_size);
 		fread(buffer, sizeof(char), block_size, input);
 		fwrite(buffer, sizeof(char), block_size, output);
+		MD5_Update(&md5, buffer, block_size);
 	}
 
+	MD5_Final(info.md5, &md5);
 	fclose(input);
 }
 
