@@ -26,6 +26,7 @@ struct FilePack
 	static FilePack load(const char* pack_path);
 	static void create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory);
 	static void update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory);
+	static void verify_integrity(const char* path);
 private:
 	std::unordered_map<std::string, FileQuery> locations;
 };
@@ -373,6 +374,7 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 	char md5str[33];
 	md5_to_buffer(manifest.md5, md5str);
 	std::cout << "Created output file " << pack_path << " with hash " << md5str << std::endl;
+	FilePack::verify_integrity(pack_path);
 }
 
 void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory)
@@ -479,6 +481,58 @@ void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManif
 
 	fclose(read);
 	fclose(write);
+
+	free(buffer);
+	free(file_names);
+	free(file_infos);
+}
+
+void FilePack::verify_integrity(const char* path)
+{
+	PackManifest manifest;
+	char* file_names;
+	FileManifest* file_infos;
+
+	read_pack(path, &manifest, &file_names, &file_infos);
+
+	unsigned char final_md5[MD5_DIGEST_LENGTH];
+
+	struct MD5state_st md5;
+	MD5_Init(&md5);
+	MD5_Update(&md5, file_names, manifest.names_size());
+	MD5_Update(&md5, file_infos, manifest.infos_size());
+	MD5_Update(&md5, &manifest, sizeof manifest - MD5_DIGEST_LENGTH);
+	MD5_Final(final_md5, &md5);
+
+	if(memcmp(final_md5, manifest.md5, MD5_DIGEST_LENGTH))
+	{
+		std::cout << "Integrity error in manifest header." << std::endl;
+		return;
+	}
+
+	FILE* read = fopen(path, "rb");
+
+	static const uint64_t buffer_size = 1024 * 1024 * 128;
+	char* buffer = reinterpret_cast<char*>(malloc(buffer_size)); // todo
+
+	for (uint64_t i = 0; i < manifest.file_count; i++)
+	{
+		FileManifest file = file_infos[i];
+		fseek(read, file.offset, SEEK_SET);
+		MD5_Init(&md5);
+
+		for (uint64_t block = 0; block < file.size; block += buffer_size)
+		{
+			uint64_t block_size = std::min(file.size - block, buffer_size);
+			fread(buffer, sizeof(char), block_size, read);
+			MD5_Update(&md5, buffer, block_size);
+		}
+
+		MD5_Final(final_md5, &md5);
+
+		if (memcmp(final_md5, file.md5, MD5_DIGEST_LENGTH))
+			std::cout << "Integrity error in content" << std::endl;
+	}
 
 	free(buffer);
 	free(file_names);
