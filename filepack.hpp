@@ -261,9 +261,6 @@ void md5_to_buffer(const unsigned char* md5, char* output)
 
 void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory)
 {
-	if (file_count == 0)
-		return;
-
 	Builder builder;
 	builder.file_count = file_count;
 	builder.file_paths = file_paths;
