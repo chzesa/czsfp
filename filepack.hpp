@@ -8,7 +8,7 @@
 namespace czsfp
 {
 
-static const uint64_t CZSFP_VERSION = 1;
+static const uint64_t CZSFP_VERSION = 2;
 
 struct FileManifest;
 
@@ -70,6 +70,7 @@ struct PackManifest
 	uint64_t info_offset;
 	uint64_t file_count;
 	uint64_t version;
+	unsigned char md5[MD5_DIGEST_LENGTH];
 
 	uint64_t names_size() { return info_offset - name_offset; }
 	uint64_t infos_size() { return sizeof (FileManifest) * file_count; }
@@ -251,6 +252,12 @@ void check_result(std::vector<FileManifest>& infos,  uint64_t file_count, const 
 	pack_file.close();
 }
 
+void md5_to_buffer(const unsigned char* md5, char* output)
+{
+	for (int i = 0; i < 16; i++)
+		sprintf(&output[i * 2], "%02x", md5[i]);
+}
+
 void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory)
 {
 	if (file_count == 0)
@@ -341,7 +348,12 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 	manifest.file_count = file_count;
 	manifest.version = CZSFP_VERSION;
 	memcpy(ptr, &manifest, sizeof manifest);
-	ptr += sizeof manifest;
+
+	struct MD5state_st md5;
+	MD5_Init(&md5);
+	MD5_Update(&md5, data, eof_block_size);
+	MD5_Final(manifest.md5, &md5);
+	memcpy(ptr, &manifest, sizeof manifest);
 
 	// Write to file
 	output = fopen(pack_path, "r+b");
@@ -356,12 +368,10 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 
 	free(buffer);
 	check_result(builder.manifests, file_count, file_paths, asset_path_prefix, pack_path, threads, memory);
-}
 
-void md5_to_buffer(const unsigned char* md5, char* output)
-{
-	for (int i = 0; i < 16; i++)
-		sprintf(&output[i * 2], "%02x", md5[i]);
+	char md5str[33];
+	md5_to_buffer(manifest.md5, md5str);
+	std::cout << "Created output file " << pack_path << " with hash " << md5str << std::endl;
 }
 
 void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory)
