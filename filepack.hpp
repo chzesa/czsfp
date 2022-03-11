@@ -25,7 +25,7 @@ struct FilePack
 	FileQuery get(const char* pack_path) const;
 	static FilePack load(const char* pack_path);
 	static void create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory);
-	static void update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t threads, uint64_t memory);
+	static void update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory);
 private:
 	std::unordered_map<std::string, FileQuery> locations;
 };
@@ -42,10 +42,12 @@ private:
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 #include <stdio.h>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <openssl/md5.h>
@@ -93,22 +95,30 @@ FileQuery FilePack::get(const char* filename) const
 
 FilePack::FilePack() {}
 
-FilePack::FilePack(const char* path)
+void read_pack(const char* path, PackManifest* manifest, char** file_names, FileManifest** file_infos)
 {
 	std::ifstream file(path, std::ios::binary | std::ios::in | std::ios::ate);
 	uint64_t file_size = file.tellg();
-	PackManifest manifest;
 
-	file.seekg(file_size - sizeof manifest);
-	file.read(reinterpret_cast<char*>(&manifest), sizeof manifest);
+	file.seekg(file_size - sizeof (PackManifest));
+	file.read(reinterpret_cast<char*>(manifest), sizeof (PackManifest));
 
-	char* file_names = reinterpret_cast<char*>(malloc(manifest.names_size()));
-	FileManifest* file_infos = reinterpret_cast<FileManifest*>(malloc(manifest.infos_size()));
+	*file_names = reinterpret_cast<char*>(malloc(manifest->names_size()));
+	*file_infos = reinterpret_cast<FileManifest*>(malloc(manifest->infos_size()));
 
-	file.seekg(manifest.name_offset);
-	file.read(file_names, manifest.names_size());
-	file.read(reinterpret_cast<char*>(file_infos), manifest.infos_size());
+	file.seekg(manifest->name_offset);
+	file.read(*file_names, manifest->names_size());
+	file.read(reinterpret_cast<char*>(*file_infos), manifest->infos_size());
 	file.close();
+}
+
+FilePack::FilePack(const char* path)
+{
+	PackManifest manifest;
+	char* file_names;
+	FileManifest* file_infos;
+
+	read_pack(path, &manifest, &file_names, &file_infos);
 
 	for (int i = 0; i < manifest.file_count; i++)
 	{
@@ -126,6 +136,16 @@ FilePack::FilePack(const char* path)
 
 	free(file_names);
 	free(file_infos);
+}
+
+void copy_region(FILE* input, FILE* output, uint64_t size, char* buffer, uint64_t buffer_size)
+{
+	for (uint64_t block = 0; block < size; block += buffer_size)
+	{
+		uint64_t block_size = std::min(size - block, buffer_size);
+		fread(buffer, sizeof(char), block_size, input);
+		fwrite(buffer, sizeof(char), block_size, output);
+	}
 }
 
 void copy_file(FILE* output, FileManifest& info, const char* path, char* buffer, uint64_t buffer_size)
@@ -336,6 +356,122 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 
 	free(buffer);
 	check_result(builder.manifests, file_count, file_paths, asset_path_prefix, pack_path, threads, memory);
+}
+
+void md5_to_buffer(const unsigned char* md5, char* output)
+{
+	for (int i = 0; i < 16; i++)
+		sprintf(&output[i * 2], "%02x", md5[i]);
+}
+
+void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory)
+{
+	std::unordered_map<std::string, FileManifest> updated_manifests;
+	std::unordered_map<std::string, FileManifest> current_manifests;
+	std::map<uint64_t, FileManifest> file_locations;
+	std::vector<FileQuery> open_regions;
+
+	PackManifest current_manifest;
+	char* file_names;
+	FileManifest* file_infos;
+
+	read_pack(pack_path, &current_manifest, &file_names, &file_infos);
+
+	for (uint64_t i = 0; i < current_manifest.file_count; i++)
+	{
+		char md5[33];
+		FileManifest manifest = file_infos[i];
+		md5_to_buffer(manifest.md5, md5);
+		current_manifests.insert({std::string(md5), manifest});
+	}
+
+	for (uint64_t i = 0; i < manifests_count; i++)
+	{
+		char md5[33];
+		FileManifest manifest = manifests[i];
+		md5_to_buffer(manifest.md5, md5);
+		updated_manifests.insert({std::string(md5), manifest});
+		file_locations.insert({manifest.offset, manifest});
+
+		auto result = current_manifests.find(md5);
+		if (result == current_manifests.end())
+		{
+			*update_indices = i;
+			update_indices++;
+		}
+		else if(result->second.size != manifest.size)
+		{
+			*update_indices = i;
+			update_indices++;
+
+			current_manifests.erase(result);
+			open_regions.push_back({result->second.offset, result->second.size});
+		}
+	}
+
+	FILE* read = fopen(pack_path, "r+b");
+	FILE* write = fopen(pack_path, "r+b");
+
+	int64_t delta = manifests[manifests_count - 1].offset + manifests[manifests_count - 1].size
+		- current_manifest.name_offset;
+
+	if (delta > 0)
+		open_regions.push_back({current_manifest.name_offset, uint64_t(delta)});
+
+	char* buffer = reinterpret_cast<char*>(malloc(memory));
+
+	while(open_regions.size() > 0)
+	{
+		FileQuery region = open_regions.back();
+		open_regions.pop_back();
+
+		FileManifest new_location;
+		FileManifest old_location;
+
+		auto result = file_locations.lower_bound(region.offset);
+
+		if (result == file_locations.end() || region.offset >= result->second.offset + result->second.size)
+		{
+			// Nothing maps to this area in new manifest.
+			// The entire region can be discarded since the files are packed left to right
+			// so if no file maps to the beginning of the region, no file will map to
+			// the end of the region.
+			continue;
+		}
+
+		new_location = result->second;
+		char md5[33];
+		md5_to_buffer(new_location.md5, md5);
+
+		auto result2 = current_manifests.find(md5);
+		if (result2 == current_manifests.end())
+		{
+			// File contents not present in current pack, must be added after update
+			continue;
+		}
+
+		old_location = result2->second;
+
+		uint64_t mapped_region_begin = new_location.offset - region.offset + old_location.offset;
+		uint64_t region_end = std::min(region.offset + region.size, new_location.offset + new_location.size);
+		uint64_t block_size = region_end - region.offset;
+
+		fseek(read, mapped_region_begin, SEEK_SET);
+		fseek(write, region.offset, SEEK_SET);
+		copy_region(read, write, block_size, buffer, memory);
+
+		if (new_location.offset + new_location.size < region.offset + region.size)
+			open_regions.push_back({region.offset + block_size, region.size - block_size});
+
+		open_regions.push_back({mapped_region_begin, block_size});
+	}
+
+	fclose(read);
+	fclose(write);
+
+	free(buffer);
+	free(file_names);
+	free(file_infos);
 }
 
 } //namespace czsfp
