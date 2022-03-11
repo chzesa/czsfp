@@ -351,7 +351,7 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 
 	struct MD5state_st md5;
 	MD5_Init(&md5);
-	MD5_Update(&md5, data, eof_block_size);
+	MD5_Update(&md5, data, eof_block_size - MD5_DIGEST_LENGTH);
 	MD5_Final(manifest.md5, &md5);
 	memcpy(ptr, &manifest, sizeof manifest);
 
