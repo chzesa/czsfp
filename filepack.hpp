@@ -324,6 +324,12 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 	for (uint64_t i = 0; i < thread_count; i++)
 		handles[i] = std::thread(copy_thread, &builder, &index, buffer + (i * buffer_block_size), buffer_block_size);
 
+	// Wait for all copies to finish
+	for (uint64_t i = 0; i < thread_count; i++)
+		handles[i].join();
+
+	free(buffer);
+
 	// Write EoF data
 	uint64_t eof_block_size = total_size - offset;
 	char* data = reinterpret_cast<char*>(malloc(eof_block_size));
@@ -362,11 +368,6 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 	fclose(output);
 	free(data);
 
-	// Wait for all copies to finish
-	for (uint64_t i = 0; i < thread_count; i++)
-		handles[i].join();
-
-	free(buffer);
 	check_result(builder.manifests, file_count, file_paths, asset_path_prefix, pack_path, threads, memory);
 
 	char md5str[33];
