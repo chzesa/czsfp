@@ -22,7 +22,7 @@ struct FilePack
 {
 	FilePack();
 	FilePack(const char* path);
-	FileQuery get(const char* pack_path) const;
+	FileQuery get(const char* filename) const;
 	static FilePack load(const char* pack_path);
 	static void create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory);
 	static void update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory);
