@@ -10,7 +10,7 @@ int main(int argc, char** argv)
 		throw std::invalid_argument("Supply a directory name as the first argument and a filename as the second argument.");
 
 	uint64_t threads = 32;
-	uint64_t memory = uint64_t(1024) * 1024 * 128 * threads;
+	uint64_t memory = 1024l * 1024 * 16 * threads;
 	std::vector<std::string> file_names;
 
 	for (auto const& dir_entry : std::filesystem::recursive_directory_iterator(argv[1]))
