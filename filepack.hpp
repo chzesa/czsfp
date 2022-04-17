@@ -27,6 +27,8 @@ struct FilePack
 	static void create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory);
 	static void update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory);
 	static void verify_integrity(const char* path);
+	const std::unordered_map<std::string, FileQuery>::iterator begin();
+	const std::unordered_map<std::string, FileQuery>::iterator end();
 private:
 	std::unordered_map<std::string, FileQuery> locations;
 };
@@ -538,6 +540,16 @@ void FilePack::verify_integrity(const char* path)
 
 	free(buffer);
 	free(manifest_buffer);
+}
+
+const std::unordered_map<std::string, FileQuery>::iterator FilePack::begin()
+{
+	return locations.begin();
+}
+
+const std::unordered_map<std::string, FileQuery>::iterator FilePack::end()
+{
+	return locations.end();
 }
 
 } //namespace czsfp
