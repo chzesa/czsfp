@@ -24,12 +24,14 @@ struct FilePack
 	FilePack(const char* path);
 	FileQuery get(const char* filename) const;
 	static FilePack load(const char* pack_path);
+	static bool load(FilePack* pack, const char* pack_path);
 	static void create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory);
 	static void update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory);
 	static void verify_integrity(const char* path);
 	std::unordered_map<std::string, FileQuery>::const_iterator begin() const;
 	std::unordered_map<std::string, FileQuery>::const_iterator end() const;
 private:
+
 	std::unordered_map<std::string, FileQuery> locations;
 };
 
@@ -124,7 +126,7 @@ void read_pack(const char* path, PackManifest** manifest, char** buffer)
 	*manifest = reinterpret_cast<PackManifest*>(*buffer + mf.names_size() + mf.infos_size());
 }
 
-FilePack::FilePack(const char* path)
+bool FilePack::load(FilePack* pack, const char* path)
 {
 	PackManifest* manifest;
 	char* buffer;
@@ -141,13 +143,26 @@ FilePack::FilePack(const char* path)
 			continue;
 
 		std::string file_name(buffer + info.name_offset, info.name_length);
-		this->locations.insert({
+		pack->locations.insert({
 			file_name,
 			{info.offset, info.size}
 		});
 	}
 
 	free(buffer);
+	return true;
+}
+
+FilePack FilePack::load(const char* path)
+{
+	FilePack ret;
+	load(&ret, path);
+	return ret;
+}
+
+FilePack::FilePack(const char* path)
+{
+	load(this, path);
 }
 
 void copy_region(FILE* input, FILE* output, uint64_t size, char* buffer, uint64_t buffer_size)
