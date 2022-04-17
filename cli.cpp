@@ -31,4 +31,13 @@ int main(int argc, char** argv)
 
 	czsfp::FilePack::create(dest, origin, file_names.size(), array, threads, memory);
 	delete array;
+
+	auto pack = czsfp::FilePack(dest);
+
+	std::cout << "Files:" << std::endl;
+
+	for (const auto& [k, v] : pack)
+	{
+		std::cout << '\t' << k << std::endl;
+	}
 }
