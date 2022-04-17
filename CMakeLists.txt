@@ -6,5 +6,6 @@ project(czsfp_cli
 )
 
 find_package(OpenSSL REQUIRED)
+find_package(CURL REQUIRED)
 add_executable(app cli.cpp)
-target_link_libraries(app OpenSSL::SSL)
+target_link_libraries(app OpenSSL::SSL curl)
