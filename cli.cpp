@@ -11,9 +11,12 @@ int main(int argc, char** argv)
 
 	uint64_t threads = 32;
 	uint64_t memory = 1024l * 1024 * 16 * threads;
+	char* origin = argv[1];
+	char* dest = argv[2];
+
 	std::vector<std::string> file_names;
 
-	for (auto const& dir_entry : std::filesystem::recursive_directory_iterator(argv[1]))
+	for (auto const& dir_entry : std::filesystem::recursive_directory_iterator(origin))
 	{
 		if (!dir_entry.is_regular_file())
 			continue;
@@ -26,6 +29,6 @@ int main(int argc, char** argv)
 	for (size_t i = 0; i < file_names.size(); i++)
 		array[i] = file_names[i].c_str();
 
-	czsfp::FilePack::create(argv[2], argv[1], file_names.size(), array, threads, memory);
+	czsfp::FilePack::create(dest, origin, file_names.size(), array, threads, memory);
 	delete array;
 }
