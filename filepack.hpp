@@ -91,6 +91,7 @@ struct PackManifest
 	uint64_t version;
 	unsigned char md5[MD5_DIGEST_LENGTH];
 
+	uint64_t files_size() { return name_offset; }
 	uint64_t names_size() { return info_offset - name_offset; }
 	uint64_t infos_size() { return sizeof (FileManifest) * file_count; }
 	uint64_t total_size() { return name_offset + names_size() + infos_size() + sizeof(PackManifest); }
@@ -116,54 +117,154 @@ FileQuery FilePack::get(const char* filename) const
 
 FilePack::FilePack() {}
 
-FileManifest* manifests_from_buffer(PackManifest& manifest, char* buffer)
+struct Reader
 {
-	return reinterpret_cast<FileManifest*>(buffer + manifest.info_offset - manifest.name_offset);
-}
+	char* names_buffer = nullptr;
+	PackManifest* manifest = nullptr;
+	FileManifest* file_manifests = nullptr;
 
-void read_pack(const char* path, PackManifest** manifest, char** buffer)
-{
-	std::ifstream file(path, std::ios::binary | std::ios::in | std::ios::ate);
-	uint64_t file_size = file.tellg();
+	Reader(const char* path)
+	{
+		Reader::read_pack(path, &names_buffer, &file_manifests, &manifest);
+	}
 
-	PackManifest mf;
+	~Reader()
+	{
+		free(names_buffer);
+		free(manifest);
+		free(file_manifests);
+		names_buffer = nullptr;
+		manifest = nullptr;
+		file_manifests = nullptr;
+	}
 
-	file.seekg(file_size - sizeof mf);
-	file.read(reinterpret_cast<char*>(&mf), sizeof mf);
+	bool valid()
+	{
+		return names_buffer != nullptr && manifest != nullptr && file_manifests != nullptr && validate_header_md5() && sanity_check();
+	}
 
-	*buffer = reinterpret_cast<char*>(malloc(file_size - mf.name_offset));
+	bool sanity_check()
+	{
+		uint64_t files_size = 0;
+		uint64_t names_length = 0;
 
-	file.seekg(mf.name_offset);
-	file.read(*buffer, file_size - sizeof mf);
-	file.close();
+		for (uint64_t i = 0; i < manifest->file_count; i++)
+		{
+			// TODO
+			// check file regions don't overlap
+			// check file names don't overlap
 
-	*manifest = reinterpret_cast<PackManifest*>(*buffer + mf.names_size() + mf.infos_size());
-}
+			FileManifest& fm = file_manifests[i];
+			files_size += fm.size;
+			names_length += fm.name_length;
+
+			if ( !file_region_valid(fm) || !name_region_valid(fm) )
+				return false;
+		}
+
+		if (files_size != manifest->files_size() || names_length != manifest->names_size())
+			return false;
+
+		return true;
+	}
+
+private:
+	bool validate_header_md5()
+	{
+		unsigned char final_md5[MD5_DIGEST_LENGTH];
+
+		struct MD5state_st md5;
+
+		MD5_Init(&md5);
+		MD5_Update(&md5, names_buffer, manifest->names_size());
+		MD5_Update(&md5, file_manifests, manifest->infos_size());
+		MD5_Update(&md5, manifest, sizeof (PackManifest) - MD5_DIGEST_LENGTH);
+		MD5_Final(final_md5, &md5);
+
+		if(memcmp(final_md5, manifest->md5, MD5_DIGEST_LENGTH))
+		{
+			std::cout << "Integrity error in manifest header." << std::endl;
+			return false;
+		}
+
+		return true;
+	}
+
+	bool file_region_valid(FileManifest& file)
+	{
+		uint64_t limit = manifest->files_size();
+		return file.offset < limit
+			&& file.size < limit
+			&& file.offset + file.size <= limit;
+	}
+
+	bool name_region_valid(FileManifest& file)
+	{
+		uint64_t limit = manifest->names_size();
+		return file.name_offset < limit
+			&& file.name_length < limit
+			&& file.name_offset + file.name_length <= limit;
+	}
+
+	static bool read_pack(const char* path, char** names_buffer, FileManifest** file_manifests, PackManifest** manifest)
+	{
+		std::ifstream file(path, std::ios::binary | std::ios::in | std::ios::ate);
+		uint64_t file_size = file.tellg();
+
+		if (file_size < sizeof (PackManifest))
+			return false;
+
+		PackManifest* mf = new PackManifest();
+
+		file.seekg(file_size - sizeof (PackManifest));
+		file.read(reinterpret_cast<char*>(mf), sizeof (PackManifest));
+
+		if (mf->total_size() != file_size
+			|| ( mf->file_count == 0 && ( mf->infos_size() != 0 || mf->names_size() != 0 || mf->files_size() != 0 ) )
+			|| ( mf->infos_size() != sizeof (FileManifest) * mf->file_count ) )
+		{
+			free(mf);
+			return false;
+		}
+
+		*file_manifests = reinterpret_cast<FileManifest*>(malloc(mf->infos_size()));
+		*names_buffer = reinterpret_cast<char*>(malloc(mf->names_size()));
+
+		file.seekg(mf->name_offset);
+		file.read(*names_buffer, mf->names_size());
+
+		file.seekg(mf->info_offset);
+		file.read(reinterpret_cast<char*>(*file_manifests), mf->infos_size());
+
+		file.close();
+
+		*manifest = mf;
+
+		return true;
+	}
+};
 
 bool FilePack::load(FilePack* pack, const char* path)
 {
-	PackManifest* manifest;
-	char* buffer;
+	Reader reader(path);
+	if (!reader.valid())
+		return false;
 
-	read_pack(path, &manifest, &buffer);
-
-	FileManifest* file_infos = manifests_from_buffer(*manifest, buffer);
-
-	for (int i = 0; i < manifest->file_count; i++)
+	for (int i = 0; i < reader.manifest->file_count; i++)
 	{
-		FileManifest info = file_infos[i];
+		FileManifest info = reader.file_manifests[i];
 
-		if (info.name_offset, info.name_length >= manifest->names_size())
+		if (info.name_offset, info.name_length >= reader.manifest->names_size())
 			continue;
 
-		std::string file_name(buffer + info.name_offset, info.name_length);
+		std::string file_name(reader.names_buffer + info.name_offset, info.name_length);
+
 		pack->locations.insert({
 			file_name,
 			{info.offset, info.size}
 		});
 	}
 
-	free(buffer);
 	return true;
 }
 
@@ -420,16 +521,12 @@ void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManif
 	std::map<uint64_t, FileManifest> file_locations;
 	std::vector<FileQuery> open_regions;
 
-	PackManifest* current_manifest;
-	char* manifest_buffer;
+	Reader reader(pack_path);
 
-	read_pack(pack_path, &current_manifest, &manifest_buffer);
-	FileManifest* file_infos = manifests_from_buffer(*current_manifest, manifest_buffer);
-
-	for (uint64_t i = 0; i < current_manifest->file_count; i++)
+	for (uint64_t i = 0; i < reader.manifest->file_count; i++)
 	{
 		char md5[33];
-		FileManifest manifest = file_infos[i];
+		FileManifest manifest = reader.file_manifests[i];
 		md5_to_buffer(manifest.md5, md5);
 		current_manifests.insert({std::string(md5), manifest});
 	}
@@ -462,10 +559,10 @@ void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManif
 	FILE* write = fopen(pack_path, "r+b");
 
 	int64_t delta = manifests[manifests_count - 1].offset + manifests[manifests_count - 1].size
-		- current_manifest->name_offset;
+		- reader.manifest->name_offset;
 
 	if (delta > 0)
-		open_regions.push_back({current_manifest->name_offset, uint64_t(delta)});
+		open_regions.push_back({reader.manifest->name_offset, uint64_t(delta)});
 
 	char* buffer = reinterpret_cast<char*>(malloc(memory));
 
@@ -519,38 +616,25 @@ void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManif
 	fclose(write);
 
 	free(buffer);
-	free(manifest_buffer);
 }
 
 void FilePack::verify_integrity(const char* path)
 {
-	PackManifest* manifest;
-	char* manifest_buffer;
-
-	read_pack(path, &manifest, &manifest_buffer);
-	FileManifest* file_infos = manifests_from_buffer(*manifest, manifest_buffer);
-
-	unsigned char final_md5[MD5_DIGEST_LENGTH];
+	Reader reader(path);
+	if (!reader.valid())
+		std::cout << "Pack not valid" << std::endl;
 
 	struct MD5state_st md5;
-	MD5_Init(&md5);
-	MD5_Update(&md5, manifest_buffer, manifest->total_size() - manifest->name_offset - MD5_DIGEST_LENGTH);
-	MD5_Final(final_md5, &md5);
-
-	if(memcmp(final_md5, manifest->md5, MD5_DIGEST_LENGTH))
-	{
-		std::cout << "Integrity error in manifest header." << std::endl;
-		return;
-	}
+	unsigned char final_md5[MD5_DIGEST_LENGTH];
 
 	FILE* read = fopen(path, "rb");
 
 	static const uint64_t buffer_size = 1024 * 1024 * 128;
 	char* buffer = reinterpret_cast<char*>(malloc(buffer_size)); // todo
 
-	for (uint64_t i = 0; i < manifest->file_count; i++)
+	for (uint64_t i = 0; i < reader.manifest->file_count; i++)
 	{
-		FileManifest file = file_infos[i];
+		FileManifest file = reader.file_manifests[i];
 		fseek(read, file.offset, SEEK_SET);
 		MD5_Init(&md5);
 
@@ -568,7 +652,6 @@ void FilePack::verify_integrity(const char* path)
 	}
 
 	free(buffer);
-	free(manifest_buffer);
 }
 
 std::unordered_map<std::string, FileQuery>::const_iterator FilePack::begin() const
