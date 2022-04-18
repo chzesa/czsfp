@@ -1,5 +1,5 @@
 #define CZSFP_IMPLEMENTATION
-#include "filepack.hpp"
+#include "czsfp.hpp"
 
 #include <filesystem>
 #include <vector>
