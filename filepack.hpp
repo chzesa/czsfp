@@ -41,7 +41,7 @@ struct FilePack
 	static bool load(FilePack* pack, const char* pack_path);
 	static void create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory);
 	static uint64_t update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory);
-	static void verify_integrity(const char* path);
+	static bool verify_integrity(const char* path);
 	static bool update_from_url(const char* url, const char* pack_path, uint64_t threads, uint64_t memory, bool create = true, int64_t rate_limit = 0);
 	std::unordered_map<std::string, FileQuery>::const_iterator begin() const;
 	std::unordered_map<std::string, FileQuery>::const_iterator end() const;
@@ -623,11 +623,14 @@ uint64_t FilePack::update(const char* pack_path, uint64_t manifests_count, FileM
 	return updated_file_count;
 }
 
-void FilePack::verify_integrity(const char* path)
+bool FilePack::verify_integrity(const char* path)
 {
 	Reader reader(path);
 	if (!reader.valid())
+	{
 		std::cout << "Pack not valid" << std::endl;
+		return false;
+	}
 
 	struct MD5state_st md5;
 	unsigned char final_md5[MD5_DIGEST_LENGTH];
@@ -653,10 +656,14 @@ void FilePack::verify_integrity(const char* path)
 		MD5_Final(final_md5, &md5);
 
 		if (memcmp(final_md5, file.md5, MD5_DIGEST_LENGTH))
+		{
 			std::cout << "Integrity error in content" << std::endl;
+			return false;
+		}
 	}
 
 	free(buffer);
+	return true;
 }
 
 std::unordered_map<std::string, FileQuery>::const_iterator FilePack::begin() const
