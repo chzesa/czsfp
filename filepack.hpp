@@ -42,7 +42,9 @@ struct FilePack
 	static void create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory);
 	static uint64_t update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory);
 	static bool verify_integrity(const char* path);
+#ifdef CZSFP_CURL
 	static bool update_from_url(const char* url, const char* pack_path, uint64_t threads, uint64_t memory, bool create = true, int64_t rate_limit = 0);
+#endif // CZSFP_CURL
 	std::unordered_map<std::string, FileQuery>::const_iterator begin() const;
 	std::unordered_map<std::string, FileQuery>::const_iterator end() const;
 private:
@@ -57,6 +59,7 @@ private:
 #ifndef CZSFP_IMPLEMENTATION_GUARD_
 #define CZSFP_IMPLEMENTATION_GUARD_
 
+
 #include <algorithm>
 #include <atomic>
 #include <cstring>
@@ -70,7 +73,10 @@ private:
 #include <unordered_map>
 #include <vector>
 
+#ifdef CZSFP_CURL
 #include <curl/curl.h>
+#endif // CZSFP_CURL
+
 #include <openssl/md5.h>
 
 namespace czsfp
@@ -677,6 +683,8 @@ std::unordered_map<std::string, FileQuery>::const_iterator FilePack::end() const
 	return locations.end();
 }
 
+#ifdef CZSFP_CURL
+
 size_t curl_buffer_write(void *ptr, size_t size, size_t nmemb, void* buffer)
 {
 	memcpy(buffer, ptr, size * nmemb);
@@ -795,6 +803,8 @@ bool FilePack::update_from_url(const char* url, const char* pack_path, uint64_t 
 
 	return result;
 }
+
+#endif // CZSFP_CURL
 
 } //namespace czsfp
 #endif // CZSFP_IMPLEMENTATION_GUARD_
