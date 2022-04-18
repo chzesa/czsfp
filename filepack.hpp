@@ -40,8 +40,9 @@ struct FilePack
 	static FilePack load(const char* pack_path);
 	static bool load(FilePack* pack, const char* pack_path);
 	static void create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory);
-	static void update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory);
+	static uint64_t update(const char* pack_path, uint64_t manifest_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory);
 	static void verify_integrity(const char* path);
+	static bool update_from_url(const char* url, const char* pack_path, uint64_t threads, uint64_t memory, bool create = true, int64_t rate_limit = 0);
 	std::unordered_map<std::string, FileQuery>::const_iterator begin() const;
 	std::unordered_map<std::string, FileQuery>::const_iterator end() const;
 private:
@@ -514,8 +515,9 @@ void FilePack::create(const char* pack_path, const char* asset_path_prefix, uint
 	FilePack::verify_integrity(pack_path);
 }
 
-void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory)
+uint64_t FilePack::update(const char* pack_path, uint64_t manifests_count, FileManifest* manifests, uint64_t* update_indices, uint64_t threads, uint64_t memory)
 {
+	uint64_t updated_file_count = 0;
 	std::unordered_map<std::string, FileManifest> updated_manifests;
 	std::unordered_map<std::string, FileManifest> current_manifests;
 	std::map<uint64_t, FileManifest> file_locations;
@@ -544,11 +546,13 @@ void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManif
 		{
 			*update_indices = i;
 			update_indices++;
+			updated_file_count++;
 		}
 		else if(result->second.size != manifest.size)
 		{
 			*update_indices = i;
 			update_indices++;
+			updated_file_count++;
 
 			current_manifests.erase(result);
 			open_regions.push_back({result->second.offset, result->second.size});
@@ -616,6 +620,7 @@ void FilePack::update(const char* pack_path, uint64_t manifests_count, FileManif
 	fclose(write);
 
 	free(buffer);
+	return updated_file_count;
 }
 
 void FilePack::verify_integrity(const char* path)
