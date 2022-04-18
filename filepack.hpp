@@ -10,6 +10,17 @@ namespace czsfp
 
 static const uint64_t CZSFP_VERSION = 2;
 
+/*
+	Output file organized as follows:
+		Copied file contents
+		File path+name suffixes
+		File manifests
+		Pack manifest
+
+	Offsets in PackManifest are calculated from the beginning of file
+	Offsets in FileManifest are from the beginning of the appropriate block
+*/
+
 struct FileManifest;
 
 struct FileQuery
