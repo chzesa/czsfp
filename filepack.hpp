@@ -70,6 +70,7 @@ private:
 #include <unordered_map>
 #include <vector>
 
+#include <curl/curl.h>
 #include <openssl/md5.h>
 
 namespace czsfp
@@ -674,6 +675,125 @@ std::unordered_map<std::string, FileQuery>::const_iterator FilePack::begin() con
 std::unordered_map<std::string, FileQuery>::const_iterator FilePack::end() const
 {
 	return locations.end();
+}
+
+size_t curl_buffer_write(void *ptr, size_t size, size_t nmemb, void* buffer)
+{
+	memcpy(buffer, ptr, size * nmemb);
+	return size * nmemb;
+}
+
+void curl_range(uint64_t begin, uint64_t end, CURL* curl)
+{
+	std::string range = std::to_string(begin) + "-" + std::to_string(end);
+	curl_easy_setopt(curl, CURLOPT_RANGE, range.c_str());
+}
+
+bool update_from_url(CURL* curl, FILE* file, const char* url, const char* pack_path, uint64_t threads, uint64_t memory, bool create, int64_t rate_limit)
+{
+	CURLcode res;
+	curl_easy_setopt(curl, CURLOPT_URL, url);
+	curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE, rate_limit);
+
+	if (!file && create)
+	{
+		file = fopen(pack_path, "wb");
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
+		res = curl_easy_perform(curl);
+		fclose(file);
+		return res == CURLE_OK;
+	}
+
+	// Query filesize
+	curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+	res = curl_easy_perform(curl);
+
+	if (res != CURLE_OK)
+		return false;
+
+	double filesize;
+	res = curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &filesize);
+
+	curl_easy_setopt(curl, CURLOPT_NOBODY, 0);
+
+	// Download manifest header
+	PackManifest manifest;
+	curl_range(filesize - sizeof (PackManifest), filesize, curl);
+
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_buffer_write);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &manifest);
+
+	res = curl_easy_perform(curl);
+	if (res != CURLE_OK)
+		return false;
+
+	// Check which manifests to update
+	FileManifest file_manifests[manifest.file_count];
+	uint64_t update_indices[manifest.file_count];
+
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &file_manifests);
+	curl_range(manifest.info_offset, manifest.info_offset + manifest.infos_size(), curl);
+
+	res = curl_easy_perform(curl);
+	if (res != CURLE_OK)
+		return false;
+
+	uint64_t num_update = FilePack::update(pack_path, manifest.file_count, file_manifests, update_indices, threads, memory);
+
+	// Download updated contents
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
+
+	for (uint64_t i = 0; i < num_update; i++)
+	{
+		FileManifest& fm = file_manifests[i];
+		fseek(file, fm.offset, SEEK_SET);
+		curl_range(fm.offset, fm.offset + fm.size, curl);
+
+		res = curl_easy_perform(curl);
+		if (res != CURLE_OK)
+			return false;
+	}
+
+	// Write updated file names
+	fseek(file, manifest.name_offset, SEEK_SET);
+	curl_range(manifest.name_offset, manifest.name_offset + manifest.names_size(), curl);
+
+	res = curl_easy_perform(curl);
+	if (res != CURLE_OK)
+		return false;
+
+	// Write updated infos
+	fseek(file, manifest.info_offset, SEEK_SET);
+	fwrite(file_manifests, sizeof(FileManifest), manifest.file_count, file);
+
+	// write manifest data
+	fwrite(&manifest, sizeof manifest, 1, file);
+
+	return true;
+}
+
+
+bool FilePack::update_from_url(const char* url, const char* pack_path, uint64_t threads, uint64_t memory, bool create, int64_t rate_limit)
+{
+	CURL* curl = curl_easy_init();
+
+	if (!curl)
+		return false;
+
+	FILE* file = fopen(pack_path, "r+b");
+
+	bool result = czsfp::update_from_url(curl, file, url, pack_path, threads, memory, create,  rate_limit);
+
+	if (file)
+		fclose(file);
+
+	curl_easy_cleanup(curl);
+
+	FilePack::verify_integrity(pack_path);
+
+	return result;
 }
 
 } //namespace czsfp
