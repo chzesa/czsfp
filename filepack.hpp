@@ -19,6 +19,9 @@ static const uint64_t CZSFP_VERSION = 2;
 
 	Offsets in PackManifest are calculated from the beginning of file
 	Offsets in FileManifest are from the beginning of the appropriate block
+	FileManifest md5 is calculated from file content
+	PackManifest md5 is calculated from the beginning of file names up until pack manifest
+		md5 field
 */
 
 struct FileManifest;
