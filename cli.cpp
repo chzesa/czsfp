@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <vector>
+#include <algorithm>
 
 int main(int argc, char** argv)
 {
@@ -23,6 +24,8 @@ int main(int argc, char** argv)
 
 		file_names.push_back(dir_entry.path());
 	}
+
+	std::sort(file_names.begin(), file_names.end());
 
 	const char** array = new const char*[file_names.size()];
 
