@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <unordered_map>
 #include <string>
+#include <vector>
 
 namespace czsfp
 {
@@ -45,11 +46,21 @@ struct FilePack
 #ifdef CZSFP_CURL
 	static bool update_from_url(const char* url, const char* pack_path, uint64_t threads, uint64_t memory, bool create = true, int64_t rate_limit = 0);
 #endif // CZSFP_CURL
-	std::unordered_map<std::string, FileQuery>::const_iterator begin() const;
-	std::unordered_map<std::string, FileQuery>::const_iterator end() const;
-private:
 
-	std::unordered_map<std::string, FileQuery> locations;
+	struct Info : FileQuery
+	{
+		const char* name;
+		uint64_t name_length;
+	};
+
+	std::vector<Info>::const_iterator begin() const;
+	std::vector<Info>::const_iterator end() const;
+	
+private:
+	static bool sortFn(const Info& a, const Info& b);
+
+	char* strings;
+	std::vector<Info> locations;
 };
 
 } // namespace czsfp
@@ -70,8 +81,7 @@ private:
 #include <stdio.h>
 #include <string>
 #include <thread>
-#include <unordered_map>
-#include <vector>
+#include <cstring>
 
 #ifdef CZSFP_CURL
 #include <curl/curl.h>
@@ -114,13 +124,32 @@ struct Builder
 	std::vector<FileManifest> manifests;
 };
 
+bool FilePack::sortFn(const Info& a, const Info& b)
+{
+	if (a.name_length != b.name_length)
+		return a.name_length < b.name_length;
+
+	return memcmp(a.name, b.name, a.name_length) == -1;
+}
+
 FileQuery FilePack::get(const char* filename) const
 {
-	auto res = this->locations.find(filename);
-	if (res == this->locations.end())
+	Info info = {
+		0,
+		0,
+		filename,
+		strlen(filename)
+	};
+
+	auto res = std::lower_bound(locations.begin(), locations.end(), info, sortFn);
+
+	if (sortFn(info, *res) || sortFn(*res, info))
 		return { uint64_t(-1), 0 };
 
-	return res->second;
+	return {
+		res->offset,
+		res->size
+	};
 }
 
 FilePack::FilePack() {}
@@ -258,21 +287,24 @@ bool FilePack::load(FilePack* pack, const char* path)
 	if (!reader.valid())
 		return false;
 
+	pack->strings = reinterpret_cast<char*>(malloc(reader.manifest->names_size()));
+	memcpy(pack->strings, reader.names_buffer, reader.manifest->names_size());
+	pack->locations.reserve(reader.manifest->file_count);
+	pack->locations.clear();
+
 	for (int i = 0; i < reader.manifest->file_count; i++)
 	{
-		FileManifest info = reader.file_manifests[i];
+		FileManifest& info = reader.file_manifests[i];
 
-		if (info.name_offset, info.name_length >= reader.manifest->names_size())
-			continue;
-
-		std::string file_name(reader.names_buffer + info.name_offset, info.name_length);
-
-		pack->locations.insert({
-			file_name,
-			{info.offset, info.size}
+		pack->locations.push_back({
+			info.offset,
+			info.size,
+			pack->strings + info.name_offset,
+			info.name_length
 		});
 	}
 
+	std::sort(pack->locations.begin(), pack->locations.end(), sortFn);
 	return true;
 }
 
@@ -673,12 +705,12 @@ bool FilePack::verify_integrity(const char* path)
 	return true;
 }
 
-std::unordered_map<std::string, FileQuery>::const_iterator FilePack::begin() const
+std::vector<FilePack::Info>::const_iterator FilePack::begin() const
 {
 	return locations.begin();
 }
 
-std::unordered_map<std::string, FileQuery>::const_iterator FilePack::end() const
+std::vector<FilePack::Info>::const_iterator FilePack::end() const
 {
 	return locations.end();
 }
