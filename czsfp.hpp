@@ -38,6 +38,7 @@ struct FilePack
 	FilePack();
 	FilePack(const char* path);
 	FileQuery get(const char* filename) const;
+	FileQuery get(uint64_t index) const;
 	static FilePack load(const char* pack_path);
 	static bool load(FilePack* pack, const char* pack_path);
 	static void create(const char* pack_path, const char* asset_path_prefix, uint64_t file_count, const char** file_paths, uint64_t threads, uint64_t memory);
@@ -60,6 +61,7 @@ private:
 	static bool sort_fn(const Info& a, const Info& b);
 
 	char* strings;
+	std::vector<FileQuery> indexLocations;
 	std::vector<Info> locations;
 };
 
@@ -130,6 +132,14 @@ bool FilePack::sort_fn(const Info& a, const Info& b)
 		return a.name_length < b.name_length;
 
 	return memcmp(a.name, b.name, a.name_length) < -1;
+}
+
+FileQuery FilePack::get(uint64_t index) const
+{
+	if (index < indexLocations.size())
+		return indexLocations[index];
+
+	return { uint64_t(-1), 0 };
 }
 
 FileQuery FilePack::get(const char* filename) const
@@ -290,11 +300,16 @@ bool FilePack::load(FilePack* pack, const char* path)
 	pack->strings = reinterpret_cast<char*>(malloc(reader.manifest->names_size()));
 	memcpy(pack->strings, reader.names_buffer, reader.manifest->names_size());
 	pack->locations.reserve(reader.manifest->file_count);
-	pack->locations.clear();
+	pack->indexLocations.reserve(reader.manifest->file_count);
 
 	for (int i = 0; i < reader.manifest->file_count; i++)
 	{
 		FileManifest& info = reader.file_manifests[i];
+
+		pack->indexLocations.push_back({
+			info.offset,
+			info.size
+		});
 
 		pack->locations.push_back({
 			info.offset,
