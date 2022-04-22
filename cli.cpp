@@ -39,8 +39,6 @@ int main(int argc, char** argv)
 
 	std::cout << "Files:" << std::endl;
 
-	for (const auto& [k, v] : pack)
-	{
-		std::cout << '\t' << k << std::endl;
-	}
+	for (const auto& file : pack)
+		std::cout << '\t' << std::string(file.name, file.name_length) << std::endl;
 }
