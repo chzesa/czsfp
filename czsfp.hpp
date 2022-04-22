@@ -37,6 +37,7 @@ struct FilePack
 {
 	FilePack();
 	FilePack(const char* path);
+	~FilePack();
 	FileQuery get(const char* filename) const;
 	FileQuery get(uint64_t index) const;
 	static FilePack load(const char* pack_path);
@@ -333,6 +334,11 @@ FilePack FilePack::load(const char* path)
 FilePack::FilePack(const char* path)
 {
 	load(this, path);
+}
+
+FilePack::~FilePack()
+{
+	free(strings);
 }
 
 void copy_region(FILE* input, FILE* output, uint64_t size, char* buffer, uint64_t buffer_size)
