@@ -57,7 +57,7 @@ struct FilePack
 	std::vector<Info>::const_iterator end() const;
 	
 private:
-	static bool sortFn(const Info& a, const Info& b);
+	static bool sort_fn(const Info& a, const Info& b);
 
 	char* strings;
 	std::vector<Info> locations;
@@ -124,12 +124,12 @@ struct Builder
 	std::vector<FileManifest> manifests;
 };
 
-bool FilePack::sortFn(const Info& a, const Info& b)
+bool FilePack::sort_fn(const Info& a, const Info& b)
 {
 	if (a.name_length != b.name_length)
 		return a.name_length < b.name_length;
 
-	return memcmp(a.name, b.name, a.name_length) == -1;
+	return memcmp(a.name, b.name, a.name_length) < -1;
 }
 
 FileQuery FilePack::get(const char* filename) const
@@ -141,9 +141,9 @@ FileQuery FilePack::get(const char* filename) const
 		strlen(filename)
 	};
 
-	auto res = std::lower_bound(locations.begin(), locations.end(), info, sortFn);
+	auto res = std::lower_bound(locations.begin(), locations.end(), info, sort_fn);
 
-	if (sortFn(info, *res) || sortFn(*res, info))
+	if (sort_fn(info, *res) || sort_fn(*res, info))
 		return { uint64_t(-1), 0 };
 
 	return {
@@ -304,7 +304,7 @@ bool FilePack::load(FilePack* pack, const char* path)
 		});
 	}
 
-	std::sort(pack->locations.begin(), pack->locations.end(), sortFn);
+	std::sort(pack->locations.begin(), pack->locations.end(), sort_fn);
 	return true;
 }
 
