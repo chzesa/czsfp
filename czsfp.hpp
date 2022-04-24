@@ -132,7 +132,7 @@ bool FilePack::sort_fn(const Info& a, const Info& b)
 	if (a.name_length != b.name_length)
 		return a.name_length < b.name_length;
 
-	return memcmp(a.name, b.name, a.name_length) < -1;
+	return memcmp(a.name, b.name, a.name_length) < 0;
 }
 
 FileQuery FilePack::get(uint64_t index) const
