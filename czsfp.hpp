@@ -179,11 +179,8 @@ struct Reader
 	~Reader()
 	{
 		free(names_buffer);
-		free(manifest);
 		free(file_manifests);
-		names_buffer = nullptr;
-		manifest = nullptr;
-		file_manifests = nullptr;
+		delete manifest;
 	}
 
 	bool valid()
