@@ -145,12 +145,11 @@ FileQuery FilePack::get(uint64_t index) const
 
 FileQuery FilePack::get(const char* filename) const
 {
-	Info info = {
-		0,
-		0,
-		filename,
-		strlen(filename)
-	};
+	Info info;
+	info.offset = 0;
+	info.size = 0;
+	info.name = filename;
+	info.name_length = strlen(filename);
 
 	auto res = std::lower_bound(locations.begin(), locations.end(), info, sort_fn);
 
@@ -309,12 +308,13 @@ bool FilePack::load(FilePack* pack, const char* path)
 			info.size
 		});
 
-		pack->locations.push_back({
-			info.offset,
-			info.size,
-			pack->strings + info.name_offset,
-			info.name_length
-		});
+		Info d;
+		d.offset = info.offset;
+		d.size = info.size;
+		d.name = pack->strings + info.name_offset;
+		d.name_length = info.name_length;
+
+		pack->locations.push_back(d);
 	}
 
 	std::sort(pack->locations.begin(), pack->locations.end(), sort_fn);
